@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qfree"
+version = "0.1.0"
+description = "Local-first A-share quality and volume-breakout screener"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24", "pandas>=2.0", "pyarrow>=15"]
+
+[project.optional-dependencies]
+tushare = ["tushare>=1.4"]
+test = ["pytest>=7"]
+dev = ["ruff>=0.6", "pytest>=7"]
+
+[project.scripts]
+qfree = "qfree.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
