@@ -425,6 +425,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not DATE_RE.match(d):
                     return jdump(self, {"error": "date 格式须为 YYYY-MM-DD"}, 400)
                 return jdump(self, forward_for_date(d))
+            if path == "/api/bars":
+                r = api_bars(q.get("symbol", [""])[0],
+                             q.get("start", [None])[0] or None,
+                             q.get("end", [None])[0] or None)
+                status = 404 if "error" in r else 200
+                return jdump(self, r, status)
             if path == "/api/tracking":
                 try:
                     rows = max(5, min(int(q.get("rows", ["30"])[0]), 500))
@@ -465,6 +471,60 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ---------------------------------------------------------------- api impls
+
+def resolve_symbol(symbol: str) -> tuple[str, str] | tuple[None, None]:
+    """'300042' or '300042.SZ' -> (ts_code, name) via universe.csv."""
+    symbol = symbol.strip().upper()
+    uni = pd.read_csv(ROOT / "data" / "universe.csv",
+                      usecols=["ts_code", "symbol", "name"],
+                      dtype={"symbol": str})
+    uni["symbol"] = uni["symbol"].str.zfill(6)
+    if re.fullmatch(r"\d{6}", symbol):
+        hit = uni[uni["symbol"] == symbol]
+    elif re.fullmatch(r"\d{6}\.(SH|SZ)", symbol):
+        hit = uni[uni["ts_code"] == symbol]
+    else:
+        return None, None
+    if hit.empty:
+        return None, None
+    return str(hit["ts_code"].iloc[0]), str(hit["name"].iloc[0])
+
+
+def api_bars(symbol: str, start: str | None, end: str | None) -> dict:
+    ts_code, name = resolve_symbol(symbol)
+    if not ts_code:
+        return {"error": f"未知代码: {symbol}"}
+    end_ts = pd.Timestamp(end) if end else pd.Timestamp.now().normalize()
+    start_ts = pd.Timestamp(start) if start else end_ts - pd.Timedelta(days=120)
+    if end_ts - start_ts > pd.Timedelta(days=1096):
+        return {"error": "查询区间上限 3 年"}
+    store = BarStore(str(ROOT / "data"))
+    try:
+        b = store.load(Instrument(ts_code), str(start_ts.date()),
+                       str(end_ts.date())).copy()
+    except FileNotFoundError:
+        return {"error": f"{ts_code} 本地无 K 线缓存"}
+    b["date"] = pd.to_datetime(b["date"], errors="coerce").dt.normalize()
+    b = b.dropna(subset=["date"]).drop_duplicates("date").sort_values("date")
+    stock = [{"date": str(r.date.date()), "open": float(r.open),
+              "high": float(r.high), "low": float(r.low),
+              "close": float(r.close), "volume": float(r.volume),
+              "amount": float(r.amount),
+              "pct_chg": float(r.pct_chg) if pd.notna(r.pct_chg) else None}
+             for r in b.itertuples(index=False)]
+    idx = load_index(str(ROOT / "data"))
+    idx["date"] = pd.to_datetime(idx["date"]).dt.normalize()
+    idx = idx[(idx["date"] >= start_ts) & (idx["date"] <= end_ts)]
+    index = [{"date": str(r.date.date()), "close": float(r.close)}
+             for r in idx.itertuples(index=False)]
+    hist = read_breadth()
+    sessions = [str(d.date()) for d in
+                hist[(hist["cal_date"] >= start_ts)
+                     & (hist["cal_date"] <= end_ts)]["cal_date"]]
+    return {"symbol": ts_code, "name": name, "adjust": "qfq",
+            "stock": stock, "index": index, "sessions": sessions,
+            "rows": len(stock)}
+
 
 def api_status() -> dict:
     hist = read_breadth()
@@ -541,6 +601,16 @@ def api_backtest(part: str) -> dict:
         return {"error": "dashboard_data.json 不存在，请先跑 scripts/build_dashboard_data.py"}
     data = json.loads(DATA_JSON.read_text(encoding="utf-8"))
     if part == "summary":
+        # self-heal: daily sync adds sessions that full_breadth_history.csv
+        # doesn't have yet; when the calendar lags local data, kick a
+        # background rebuild (JobRunner mutex prevents duplicate submits)
+        try:
+            last_cal = data["calendar"][-1]["date"]
+            last_data = data_last_date()
+            if last_data and last_cal < last_data and JOBS.write_owner is None:
+                submit_backtest()
+        except Exception:
+            pass
         live = live_pick_counts()
         ref = breadth_only_counts()
         for c in data["calendar"]:

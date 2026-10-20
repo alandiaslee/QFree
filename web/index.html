@@ -103,6 +103,7 @@ input[type=date]{padding:7px 10px;border:1px solid var(--line);border-radius:8px
     <button class="active" data-tab="live">实盘面板</button>
     <button data-tab="backtest">回测</button>
     <button data-tab="calendar">选股日历</button>
+    <button data-tab="data">数据核对</button>
   </nav>
 </header>
 <main>
@@ -197,6 +198,27 @@ input[type=date]{padding:7px 10px;border:1px solid var(--line);border-radius:8px
         </details>
       </div>
     </div>
+  </div>
+</section>
+<!-- ================= 数据核对 ================= -->
+<section class="tab" id="tab-data">
+  <div class="panel">
+    <div class="row-flex">
+      <h2 style="margin:0">个股 / 沪深300 日线</h2>
+      <input id="bars-symbol" placeholder="300042 或 300042.SZ"
+             style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;width:160px">
+      <input type="date" id="bars-start">
+      <span class="hint">至</span>
+      <input type="date" id="bars-end">
+      <button class="btn" id="btn-bars">查询</button>
+      <span id="bars-name" class="hint"></span>
+    </div>
+    <div id="bars-gap" class="hint" style="margin-bottom:6px"></div>
+    <div id="chart-bars" style="width:100%;height:430px"></div>
+  </div>
+  <div class="panel">
+    <h2>原始数据（qfq 前复权 · 最近在前）</h2>
+    <table id="bars-table"><thead></thead><tbody></tbody></table>
   </div>
 </section>
 </main>
@@ -458,6 +480,95 @@ async function calPick(date){
     $('#pick-table tbody').innerHTML=`<tr><td colspan="8">加载失败：${e.message}</td></tr>`;
   }
 }
+
+/* ---- data check tab ---- */
+function ma(vals,n){
+  return vals.map((_,i)=>{
+    if(i<n-1)return null;
+    let s=0;for(let j=i-n+1;j<=i;j++)s+=vals[j];
+    return +(s/n).toFixed(3);
+  });
+}
+async function loadBars(){
+  const sym=$('#bars-symbol').value.trim();
+  if(!sym)return;
+  $('#bars-name').textContent='加载中…';
+  $('#bars-gap').textContent='';
+  try{
+    const q=new URLSearchParams({symbol:sym});
+    if($('#bars-start').value)q.set('start',$('#bars-start').value);
+    if($('#bars-end').value)q.set('end',$('#bars-end').value);
+    const d=await api('/api/bars?'+q);
+    $('#bars-name').textContent=`${d.name} (${d.symbol}) · qfq · ${d.rows} 根K线 · 蓝线=沪深300`;
+    // 停牌缺口：市场交易日但个股无数据
+    const have=new Set(d.stock.map(r=>r.date));
+    const gaps=d.sessions.filter(s=>!have.has(s));
+    if(gaps.length){
+      // 连续日期归并
+      const ranges=[];let cur=[gaps[0]];
+      for(let i=1;i<gaps.length;i++){
+        const prev=new Date(cur[cur.length-1]),g=new Date(gaps[i]);
+        if((g-prev)/86400000<=4)cur.push(gaps[i]);
+        else{ranges.push(cur);cur=[gaps[i]];}
+      }
+      ranges.push(cur);
+      $('#bars-gap').innerHTML='<span style="color:#d5493a">⚠ 停牌缺口：'+ranges.map(r=>`${r[0]}~${r[r.length-1]}（${r.length} 天）`).join('；')+'</span>';
+    }else{
+      $('#bars-gap').textContent='无停牌缺口（区间内地个股数据与市场交易日一一对应）';
+    }
+    // K 线图
+    const dates=d.stock.map(r=>r.date);
+    const kdata=d.stock.map(r=>[+r.open.toFixed(3),+r.close.toFixed(3),+r.low.toFixed(3),+r.high.toFixed(3)]);
+    const closes=d.stock.map(r=>r.close);
+    const vols=d.stock.map(r=>({value:r.volume,itemStyle:{color:r.close>=r.open?'#e54545':'#1db981'}}));
+    const idxMap={};d.index.forEach(r=>idxMap[r.date]=r.close);
+    const idxData=dates.map(dt=>idxMap[dt]??null);
+    mkChart('#chart-bars',{
+      animation:false,
+      legend:{data:['K线','MA5','MA20','沪深300'],top:0},
+      grid:[{left:60,right:60,top:28,bottom:60},{left:60,right:60,top:'72%',bottom:24}],
+      xAxis:[
+        {type:'category',data:dates,axisLabel:{interval:Math.ceil(dates.length/10)}},
+        {type:'category',data:dates,gridIndex:1,axisLabel:{show:false}}],
+      yAxis:[
+        {type:'value',scale:true},
+        {type:'value',scale:true,splitLine:{show:false},axisLabel:{color:'#1664ff'}},
+        {type:'value',gridIndex:1,axisLabel:{show:false}}],
+      dataZoom:[{type:'inside',xAxisIndex:[0,1]}],
+      tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+      series:[
+        {name:'K线',type:'candlestick',data:kdata,
+         itemStyle:{color:'#e54545',color0:'#1db981',borderColor:'#e54545',borderColor0:'#1db981'}},
+        {name:'MA5',type:'line',data:ma(closes,5),showSymbol:false,lineStyle:{width:1,color:'#f5a623'}},
+        {name:'MA20',type:'line',data:ma(closes,20),showSymbol:false,lineStyle:{width:1,color:'#9013fe'}},
+        {name:'沪深300',type:'line',data:idxData,yAxisIndex:1,showSymbol:false,
+         lineStyle:{width:1.2,color:'#1664ff'},connectNulls:true},
+        {name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:2,data:vols}]});
+    // 原始数据表（倒序）
+    const cols=['日期','开','高','低','收','成交量','成交额','涨跌幅'];
+    $('#bars-table thead').innerHTML='<tr>'+cols.map(c2=>`<th>${c2}</th>`).join('')+'</tr>';
+    $('#bars-table tbody').innerHTML=[...d.stock].reverse().map(r=>`<tr>
+      <td>${r.date}</td>
+      <td class="num">${r.open.toFixed(2)}</td><td class="num">${r.high.toFixed(2)}</td>
+      <td class="num">${r.low.toFixed(2)}</td><td class="num">${r.close.toFixed(2)}</td>
+      <td class="num">${Math.round(r.volume).toLocaleString()}</td>
+      <td class="num">${Math.round(r.amount).toLocaleString()}</td>
+      <td class="num ${cls(r.pct_chg/100)}">${r.pct_chg==null?'—':r.pct_chg.toFixed(2)+'%'}</td>
+      </tr>`).join('');
+  }catch(e){
+    $('#bars-name').textContent='';
+    $('#bars-gap').innerHTML=`<span style="color:#d5493a">${e.message}</span>`;
+    $('#bars-table tbody').innerHTML='';
+  }
+}
+$('#btn-bars').onclick=loadBars;
+$('#bars-symbol').addEventListener('keydown',e=>{if(e.key==='Enter')loadBars();});
+// 默认区间：最近 120 天
+(function(){
+  const end=new Date(),start=new Date(Date.now()-120*86400000);
+  $('#bars-end').value=end.toISOString().slice(0,10);
+  $('#bars-start').value=start.toISOString().slice(0,10);
+})();
 
 /* ---- refresh ---- */
 let breadthDays='60', trackingRows='30';
