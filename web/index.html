@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QFree 选股仪表盘</title>
+<script src="/echarts.min.js"
+        onerror="loadFallback(this)"></script>
+<script>
+function loadFallback(el){
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js';
+  s.onerror=function(){
+    document.getElementById('echarts-error').style.display='block';
+  };
+  document.head.appendChild(s);
+}
+</script>
+<style>
+:root{--up:#e54545;--down:#1db981;--bg:#f5f6f8;--card:#fff;--line:#e4e7ec;
+      --txt:#1f2329;--sub:#86909c;--green:#2ba471;--yellow:#d9a514;--gray:#c9cdd4;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+     background:var(--bg);color:var(--txt);font-size:14px}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var(--card);
+       border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:18px}
+header .meta{color:var(--sub);font-size:13px}
+nav{margin-left:auto;display:flex;gap:8px}
+nav button{padding:8px 18px;border:1px solid var(--line);border-radius:8px;
+           background:var(--card);cursor:pointer;font-size:14px}
+nav button.active{background:#1664ff;color:#fff;border-color:#1664ff}
+main{padding:20px 24px;max-width:1280px;margin:0 auto}
+.tab{display:none}.tab.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.card .label{color:var(--sub);font-size:13px;margin-bottom:8px}
+.card .value{font-size:22px;font-weight:600}
+.card .value.big{font-size:26px}
+.badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:12px;
+       color:#fff;margin-left:8px;vertical-align:middle}
+.badge.pass{background:var(--green)}.badge.block{background:var(--gray)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;
+       padding:16px;margin-bottom:18px}
+.panel h2{font-size:15px;margin-bottom:12px}
+#chart-breadth,#chart-equity{width:100%;height:300px}
+#chart-clusters{width:100%;height:280px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+thead th{color:var(--sub);font-weight:500;background:#fafbfc}
+.up{color:var(--up)}.down{color:var(--down)}
+.num{font-variant-numeric:tabular-nums}
+#cal-wrap{display:flex;gap:24px;flex-wrap:nowrap;align-items:flex-start;justify-content:space-between}
+#cal-grid{flex:0 1 auto}
+#cal-side{flex:0 0 auto;min-width:430px}
+.cal-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.cal-head button{padding:3px 10px;border:1px solid var(--line);border-radius:6px;
+                  background:#fff;cursor:pointer}
+.cal-month{font-size:15px;font-weight:600;min-width:110px;text-align:center}
+.cal-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.cal-table th,.cal-table td{border:1px solid var(--line);height:44px;text-align:center;
+  padding:2px;font-size:12px;vertical-align:middle;cursor:default}
+.cal-table td.clickable{cursor:pointer}
+.cal-table td.empty{background:#fafbfc;border-color:transparent}
+.cal-table .d{font-size:13px;font-weight:600}
+.cal-table .b{font-size:11px;color:var(--sub)}
+td.tier-green{background:var(--green);color:#fff}
+td.tier-green .b{color:#e6f7ee}
+td.tier-yellow{background:#f4e3b2}
+td.tier-red{background:#f3c6c1}
+.tier-badge{display:inline-block;padding:1px 8px;border-radius:9px;font-size:12px;
+            color:#fff;margin-left:8px;vertical-align:middle}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--sub);margin:8px 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;
+          margin-right:4px;vertical-align:-1px}
+#pick-table{table-layout:auto}
+#pick-table th,#pick-table td{white-space:nowrap}
+.btn{padding:8px 18px;border:none;border-radius:8px;background:#1664ff;color:#fff;
+     cursor:pointer;font-size:14px}
+.btn:disabled{background:var(--gray);cursor:not-allowed}
+.btn.gray{background:#fff;color:var(--txt);border:1px solid var(--line)}
+input[type=date]{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+#job-log{background:#111;color:#7ee787;font-family:Menlo,monospace;font-size:12px;
+         padding:12px;border-radius:8px;max-height:220px;overflow:auto;
+         white-space:pre-wrap;display:none;margin-top:10px}
+#echarts-error{display:none;background:#fff3e8;border:1px solid #ffb15c;color:#a4540a;
+               padding:14px;border-radius:8px;margin-bottom:16px;font-size:13px}
+.row-flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.hint{color:var(--sub);font-size:12px}
+.range-btns{display:inline-flex;gap:4px}
+.range-btns button{padding:3px 10px;border:1px solid var(--line);border-radius:6px;
+                   background:#fff;cursor:pointer;font-size:12px;color:var(--sub)}
+.range-btns button.on{background:#1664ff;color:#fff;border-color:#1664ff}
+</style>
+</head>
+<body>
+<div id="echarts-error">ECharts 加载失败。请运行：<code>sh scripts/vendor_echarts.sh</code> 或检查网络。</div>
+<header>
+  <h1>QFree 选股仪表盘</h1>
+  <span class="meta" id="hdr-meta">加载中…</span>
+  <nav>
+    <button class="active" data-tab="live">实盘面板</button>
+    <button data-tab="backtest">回测</button>
+    <button data-tab="calendar">选股日历</button>
+  </nav>
+</header>
+<main>
+<!-- ================= 实盘面板 ================= -->
+<section class="tab active" id="tab-live">
+  <div class="cards" id="live-cards"></div>
+  <div class="panel">
+    <div class="row-flex">
+      <h2 style="margin:0">启动广度走势</h2>
+      <span class="hint">红线 = 0.9% 阈值</span>
+      <span class="range-btns" id="breadth-range" style="margin-left:auto">
+        <button data-days="20">20日</button><button data-days="60" class="on">60日</button><button data-days="120">120日</button><button data-days="250">250日</button><button data-days="all">全部</button>
+      </span>
+    </div>
+    <div id="chart-breadth"></div>
+  </div>
+  <div class="panel">
+    <div class="row-flex">
+      <h2 style="margin:0">运行扫描</h2>
+      <input type="date" id="scan-date">
+      <button class="btn" id="btn-scan">运行该日扫描（约 1 分钟）</button>
+      <span class="hint" id="scan-status"></span>
+    </div>
+    <div id="job-log"></div>
+  </div>
+  <div class="panel">
+    <div class="row-flex">
+      <h2 style="margin:0">扫描日志</h2>
+      <span class="range-btns" id="tracking-range" style="margin-left:auto">
+        <button data-rows="10">10条</button><button data-rows="30" class="on">30条</button><button data-rows="100">100条</button>
+      </span>
+    </div>
+    <table id="tracking-table"><thead></thead><tbody></tbody></table>
+  </div>
+</section>
+<!-- ================= 回测 ================= -->
+<section class="tab" id="tab-backtest">
+  <div class="cards" id="bt-cards"></div>
+  <div class="panel">
+    <div class="row-flex">
+      <h2 style="margin:0">净值曲线（仅触发日）</h2>
+      <span class="hint">10d 持有 / 5% 止盈 / 扣 0.10% 双边成本</span>
+      <button class="btn gray" id="btn-backtest" style="margin-left:auto">重建回测数据</button>
+    </div>
+    <div id="chart-equity"></div>
+  </div>
+  <div class="panel">
+    <h2>簇归因</h2>
+    <div id="chart-clusters"></div>
+  </div>
+  <div class="panel">
+    <h2>触发日明细（55 天）</h2>
+    <table id="perdate-table"><thead></thead><tbody></tbody></table>
+  </div>
+</section>
+<!-- ================= 选股日历 ================= -->
+<section class="tab" id="tab-calendar">
+  <div id="cal-wrap">
+    <div id="cal-grid">
+      <div class="cal-head">
+        <button id="cal-prev">‹ 上月</button>
+        <span class="cal-month" id="cal-month"></span>
+        <button id="cal-next">下月 ›</button>
+        <button class="btn gray" id="btn-scan-cal" style="display:none">扫描该日</button>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--green)"></i>两门全开 · 推荐</span>
+        <span><i style="background:#f4e3b2"></i>仅广度过 · 仅供参考</span>
+        <span><i style="background:#f3c6c1"></i>双门全关 · 不推荐</span>
+        <span>「N只」= 当日选股数</span>
+      </div>
+      <table class="cal-table" id="cal-table"></table>
+    </div>
+    <div id="cal-side">
+      <div class="panel">
+        <div class="row-flex">
+          <h2 style="margin:0" id="pick-title">点击左侧日期</h2>
+          <span class="hint" id="pick-gate" style="margin-left:auto"></span>
+        </div>
+        <table id="pick-table"><thead></thead><tbody></tbody></table>
+        <div id="fwd-summary" style="margin-top:8px;font-weight:600;font-size:13px"></div>
+        <details style="margin-top:6px;font-size:12px;color:var(--sub)">
+          <summary style="cursor:pointer">执行规则（限价 1.02 / -5% 撤单 / 5% 止盈 / 10 日 / 保险线 0.88）</summary>
+          <div style="line-height:1.7;margin-top:4px">
+            ① 9:15 挂集合竞价限价单：限价 = 信号收盘 × 1.02；9:25 开盘价 ≤ 限价即以开盘价成交。<br>
+            ② 高开 &gt; +2% 不成交 → 9:30 前撤单（高开追高是负期望）。<br>
+            ③ 竞价低开 ≤ -5%（隔夜闪崩）→ 手动撤单放弃该股。<br>
+            ④ 被跳过标的资金收盘后均分给当日其余成交标的（或留货基），次日不再追。<br>
+            ⑤ 成交后回填实际买入价：收盘 ≥ 买入价×1.05 → 次日开盘卖出；满 10 个交易日 → 到期卖出；
+            可选保险线：收盘 ≤ 买入价×0.88 → 次日开盘卖出。
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+<script>
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const pct=(v,d=2)=>v==null?'—':(v*100).toFixed(d)+'%';
+const cls=v=>v==null?'':(v>0?'up':(v<0?'down':''));
+async function api(path,opts){const r=await fetch(path,opts);
+  const j=await r.json();if(!r.ok)throw new Error(j.error||r.statusText);return j;}
+const charts={};
+function mkChart(id,opt){if(!window.echarts)return null;
+  if(!charts[id])charts[id]=echarts.init($(id));
+  charts[id].setOption(opt,true);return charts[id];}
+window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+
+/* ---- tabs ---- */
+$$('nav button').forEach(b=>b.onclick=()=>{
+  $$('nav button').forEach(x=>x.classList.remove('active'));
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');$('#tab-'+b.dataset.tab).classList.add('active');
+  Object.values(charts).forEach(c=>c.resize());
+});
+
+/* ---- live tab ---- */
+async function loadStatus(){
+  try{
+    const s=await api('/api/status/latest');
+    $('#hdr-meta').textContent=`数据至 ${s.data_last_date||'—'} · 最近交易日 ${s.as_of}`;
+    const badge=(ok,txt)=>`<span class="badge ${ok?'pass':'block'}">${txt}</span>`;
+    $('#live-cards').innerHTML=`
+      <div class="card"><div class="label">市场门① 启动广度</div>
+        <div class="value">${pct(s.breadth,3)}${badge(s.breadth_pass,s.breadth_pass?'通过':'未过')}</div></div>
+      <div class="card"><div class="label">市场门② 沪深300 &gt; MA20</div>
+        <div class="value num">${s.regime_close.toFixed(2)} vs ${s.regime_ma.toFixed(2)}
+        ${badge(s.regime_pass,s.regime_pass?'通过':'未过')}</div></div>
+      <div class="card"><div class="label">v3 总门禁（AND）/ 推荐档位</div>
+        <div class="value big">${s.v3_gate?'推荐':(s.breadth_pass?'仅供参考':'不推荐')}</div>
+        <div class="hint">${s.v3_gate?'两门全开，可按清单正常买入':(s.breadth_pass?'仅广度门通过，指数趋势未确认':'双门全关，策略明确空仓')}</div></div>
+      <div class="card"><div class="label">最近扫描</div>
+        <div class="value">${s.last_scan?s.last_scan.as_of:'—'}</div>
+        <div class="hint">${s.last_scan?`选中 ${s.last_scan.selected_count} 只 · ${s.last_scan.elapsed_seconds}s`:''}</div></div>`;
+  }catch(e){$('#hdr-meta').textContent='状态加载失败：'+e.message;}
+}
+async function loadBreadth(days){
+  const d=await api('/api/breadth/history?days='+days);
+  mkChart('#chart-breadth',{
+    grid:{left:50,right:16,top:20,bottom:24},
+    xAxis:{type:'category',data:d.dates,axisLabel:{interval:Math.ceil(d.dates.length/8)}},
+    yAxis:{type:'value',axisLabel:{formatter:v=>(v*100).toFixed(1)+'%'}},
+    tooltip:{trigger:'axis',valueFormatter:v=>(v*100).toFixed(3)+'%'},
+    series:[{type:'line',data:d.breadth,showSymbol:false,lineStyle:{width:1.5},
+      areaStyle:{opacity:0.15},
+      markLine:{silent:true,data:[{yAxis:0.009}],lineStyle:{color:'#e54545'},
+        label:{formatter:'0.9%'}}}]});
+}
+async function loadTracking(rows){
+  const d=await api('/api/tracking?rows='+(rows||30));
+  const cols=['as_of','gate_pass','selected_count','startup_breadth','regime_pass','elapsed_seconds'];
+  $('#tracking-table thead').innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+  $('#tracking-table tbody').innerHTML=d.rows.map(r=>`<tr>
+    <td>${r.as_of}</td><td>${r.gate_pass}</td><td>${r.selected_count}</td>
+    <td class="num">${pct(r.startup_breadth,3)}</td><td>${r.regime_pass??'—'}</td>
+    <td class="num">${r.elapsed_seconds??'—'}</td></tr>`).join('');
+}
+
+/* ---- jobs ---- */
+let pollTimer=null;
+function runJob(url,body,statusEl,logEl,onDone){
+  statusEl.textContent='提交中…';
+  api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+    .then(j=>{
+      statusEl.textContent='运行中…';
+      logEl.style.display='block';
+      clearInterval(pollTimer);
+      pollTimer=setInterval(async()=>{
+        try{
+          const st=await api('/api/job/'+j.job_id);
+          logEl.textContent=(st.log_tail||[]).join('\n');
+          logEl.scrollTop=logEl.scrollHeight;
+          if(st.status!=='running'){
+            clearInterval(pollTimer);
+            statusEl.textContent=st.status==='done'
+              ?`完成（${st.elapsed_s}s）`:`失败（rc=${st.returncode}）`;
+            if(st.status==='done'&&onDone)onDone();
+            refreshAll();
+          }
+        }catch(e){clearInterval(pollTimer);statusEl.textContent='轮询失败：'+e.message;}
+      },2000);
+    })
+    .catch(e=>{statusEl.textContent=e.message;});
+}
+$('#btn-scan').onclick=()=>{
+  const d=$('#scan-date').value;
+  if(!d)return;
+  runJob('/api/job/scan',{as_of:d},$('#scan-status'),$('#job-log'),()=>{calInit();});
+};
+$('#btn-backtest').onclick=()=>{
+  const b=$('#btn-backtest');b.disabled=true;
+  runJob('/api/job/backtest',{},$('#btn-backtest'),$('#job-log'),()=>{loadBacktest();});
+};
+
+/* ---- backtest tab ---- */
+async function loadBacktest(){
+  let s;try{s=await api('/api/backtest/summary');}
+  catch(e){$('#bt-cards').innerHTML=`<div class="card">${e.message}</div>`;return;}
+  const sm=s.summary;
+  $('#bt-cards').innerHTML=`
+    <div class="card"><div class="label">复利收益（2023-04 ~ 至今）</div>
+      <div class="value big up">${pct(sm.compounded)}</div>
+      <div class="hint">${s.sessions} 个交易日 · 仅 ${sm.n_dates} 天在场</div></div>
+    <div class="card"><div class="label">触发日 / 日胜率</div>
+      <div class="value big">${sm.n_dates} 天</div>
+      <div class="hint">胜率 ${pct(sm.date_win,0)} · 日均 ${pct(sm.mean)}</div></div>
+    <div class="card"><div class="label">诚实年化（资金加权）</div>
+      <div class="value big up">${pct(sm.adj_cagr,1)}</div>
+      <div class="hint">在场 ${pct(sm.deployment,0)} · 空仓买货基约 +1.5pp</div></div>
+    <div class="card"><div class="label">单笔（${sm.n_signals} 笔）</div>
+      <div class="value">胜率 ${pct(sm.single_win,0)}</div>
+      <div class="hint">均值 ${pct(sm.single_mean)} · 最差 ${pct(sm.single_worst)}</div></div>`;
+  const eq=await api('/api/backtest/equity');
+  mkChart('#chart-equity',{
+    grid:{left:60,right:16,top:30,bottom:40},
+    xAxis:{type:'category',data:eq.dates},
+    yAxis:{type:'value',scale:true},
+    tooltip:{trigger:'axis',valueFormatter:v=>(v*100).toFixed(2)+'%'},
+    series:[{type:'line',data:eq.equity.map(e=>(e-1)),showSymbol:true,symbolSize:5,
+      lineStyle:{width:2,color:'#1664ff'},itemStyle:{color:'#1664ff'},
+      areaStyle:{opacity:0.12},
+      tooltip:{valueFormatter:v=>(v*100).toFixed(2)+'%'}}]});
+  mkChart('#chart-clusters',{
+    grid:{left:150,right:60,top:10,bottom:24},
+    xAxis:{type:'value',axisLabel:{formatter:v=>(v*100).toFixed(0)+'%'}},
+    yAxis:{type:'category',data:s.clusters.map(c=>`${c.start}~${c.end}`)},
+    tooltip:{valueFormatter:v=>(v*100).toFixed(1)+'%'},
+    series:[{type:'bar',data:s.clusters.map(c=>({
+        value:c.compounded,itemStyle:{color:c.compounded>0?'#e54545':'#1db981'}})),
+      label:{show:true,position:'right',formatter:p=>(p.value*100).toFixed(1)+'%'}}]});
+  const pd=await api('/api/backtest/per-date');
+  $('#perdate-table thead').innerHTML=`<tr><th>日期</th><th>收益</th><th>只数</th><th>胜率</th><th>广度</th></tr>`;
+  $('#perdate-table tbody').innerHTML=pd.per_date.map(r=>`<tr>
+    <td>${r.date}</td><td class="num ${cls(r.day_ret)}">${pct(r.day_ret)}</td>
+    <td>${r.n}</td><td class="num">${pct(r.win,0)}</td><td class="num">${pct(r.breadth,3)}</td>
+    </tr>`).join('');
+}
+
+/* ---- calendar tab ---- */
+let calMonth=null;   // Date at month start
+let calData=null;    // calendar array
+const byDate={};
+async function calInit(){
+  const s=await api('/api/backtest/summary');
+  calData=s.calendar||[];
+  calData.forEach(c=>byDate[c.date]=c);
+  if(!calMonth){
+    const dates=calData.map(c=>c.date);
+    calMonth=new Date(Math.max(...dates.map(d=>new Date(d))) );
+    calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth(),1);
+  }
+  calRender();
+}
+function calRender(){
+  const y=calMonth.getFullYear(),m=calMonth.getMonth();
+  $('#cal-month').textContent=`${y} 年 ${m+1} 月`;
+  const first=new Date(y,m,1), startDay=(first.getDay()+6)%7; // 周一=0
+  const daysIn=new Date(y,m+1,0).getDate();
+  const header='<tr>'+['一','二','三','四','五','六','日'].map(d=>`<th>${d}</th>`).join('')+'</tr>';
+  const nWeeks=Math.ceil((startDay+daysIn)/7);
+  let html='';
+  for(let w=0;w<nWeeks;w++){
+    let row='';
+    for(let i=0;i<7;i++){
+      const idx=w*7+i, dnum=idx-startDay+1;
+      if(dnum<1||dnum>daysIn){row+='<td class="empty"></td>';continue;}
+      const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(dnum).padStart(2,'0')}`;
+      const c=byDate[ds];
+      if(!c){row+=`<td><div class="d">${dnum}</div></td>`;continue;}
+      let cls2;
+      if(c.breadth_gate&&c.regime_gate)cls2='tier-green';
+      else if(c.breadth_gate)cls2='tier-yellow';
+      else cls2='tier-red';
+      const refCnt=c.ref_count||c.live_count||0;
+      const cnt=c.picks_count?c.picks_count+'只':(refCnt?refCnt+'只·参考':'');
+      row+=`<td class="clickable ${cls2}" data-date="${ds}" ${refCnt&&!c.picks_count?'title="黄色档参考名单（regime 门未过），仅供参考"':''}>
+        <div class="d">${dnum}</div>
+        <div class="b">${(c.breadth*100).toFixed(2)}%${cnt?' · '+cnt:''}</div></td>`;
+    }
+    html+=`<tr>${row}</tr>`;
+  }
+  $('#cal-table').innerHTML=header+html;
+  $$('#cal-table td.clickable').forEach(td=>td.onclick=()=>calPick(td.dataset.date));
+}
+$('#cal-prev').onclick=()=>{calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()-1,1);calRender();};
+$('#cal-next').onclick=()=>{calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()+1,1);calRender();};
+
+async function calPick(date){
+  $('#pick-title').textContent=date;
+  $('#btn-scan-cal').style.display='inline-block';
+  $('#btn-scan-cal').onclick=()=>{
+    $('#scan-date').value=date;
+    document.querySelector('nav button[data-tab=live]').click();
+    $('#btn-scan').click();
+  };
+  $('#pick-table thead').innerHTML='';
+  $('#pick-table tbody').innerHTML='<tr><td>加载中…</td></tr>';
+  $('#fwd-summary').textContent='';
+  $('#pick-gate').textContent='';
+  try{
+    const p=await api('/api/picks?date='+date);
+    let tier=null;
+    if(p.gate){
+      if(p.gate.breadth_pass&&p.gate.regime_pass)
+        tier={label:'推荐',color:'var(--green)',warn:''};
+      else if(p.gate.breadth_pass)
+        tier={label:'仅供参考',color:'var(--yellow)',
+              warn:'⚠ 仅广度门通过：沪深300 仍在 MA20 下方，指数趋势未确认，买入需谨慎'};
+      else
+        tier={label:'不推荐',color:'#d5493a',
+              warn:'⚠ 双门全关：市场广度不足，策略明确不交易'};
+    }
+    const srcName={live_scan:'实时扫描',history_ref:'仅广度参考',history:'历史回测'}[p.source]||p.source;
+    $('#pick-gate').innerHTML=(p.gate
+      ?`广度 ${pct(p.gate.breadth,3)} ${p.gate.breadth_pass?'✓':'✗'} · MA20 ${p.gate.regime_pass?'✓':'✗'} · ${srcName}`
+      :srcName)
+      +(tier?` <span class="tier-badge" style="background:${tier.color}">${tier.label}</span>`:'');
+    if(p.picks.length&&tier&&tier.warn){
+      $('#pick-gate').innerHTML+=` <span style="color:var(--yellow);font-weight:600">${tier.warn}</span>`;
+    }
+    const cols=['#','代码','名称','总分','限价单','股数','止盈/保险','10日前向'];
+    $('#pick-table thead').innerHTML='<tr>'+cols.map(c2=>`<th>${c2}</th>`).join('')+'</tr>';
+    if(!p.picks.length){
+      $('#pick-table tbody').innerHTML='<tr><td colspan="8">该日无选中股票（门禁未过或无信号）</td></tr>';
+      return;
+    }
+    $('#pick-table tbody').innerHTML=p.picks.map((r,i)=>`<tr data-code="${r.ts_code}">
+      <td>${i+1}</td><td>${r.ts_code}</td><td>${r.name??'—'}</td>
+      <td class="num">${r.score==null?'—':(+r.score).toFixed(1)}</td>
+      <td class="num">${r.limit_price?r.limit_price.toFixed(2):'—'}</td>
+      <td class="num">${r.ref_shares?r.ref_shares.toLocaleString():'—'}</td>
+      <td class="num hint">${r.profit_target_price?r.profit_target_price.toFixed(2)+' / '+r.disaster_line.toFixed(2):'—'}</td>
+      <td class="num fwd">—</td>
+      </tr>`).join('');
+    // 前向收益
+    const f=await api('/api/forward?date='+date);
+    if(f.summary){
+      $('#fwd-summary').innerHTML=`10日前向：胜率 <span class="${cls(f.summary.win-0.5)}">${pct(f.summary.win,0)}</span> · 均值 <span class="${cls(f.summary.mean)}">${pct(f.summary.mean)}</span>（${f.summary.n} 只）`;
+      const map={};
+      f.rows.forEach(r=>{if(r.ts_code)map[r.ts_code]=r;});
+      $$('#pick-table tbody tr').forEach(tr=>{
+        const fw=map[tr.dataset.code];
+        if(fw&&fw.net_return!=null){
+          tr.querySelector('.fwd').innerHTML=`<span class="${cls(fw.net_return)}">${pct(fw.net_return)}</span> <span class="hint">${fw.status==='profit_target_exit'?'止盈':fw.days_held+'日'}</span>`;
+        }
+      });
+    }else{
+      $('#fwd-summary').textContent=f.rows.length?'前向收益：数据不足（距今不足 10 个交易日）':'';
+    }
+  }catch(e){
+    $('#pick-table tbody').innerHTML=`<tr><td colspan="8">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+/* ---- refresh ---- */
+let breadthDays='60', trackingRows='30';
+function refreshAll(){
+  loadStatus();loadBreadth(breadthDays);loadTracking(trackingRows);loadBacktest();
+  if(calData)calRender();else calInit();
+}
+$$('#breadth-range button').forEach(b=>b.onclick=()=>{
+  breadthDays=b.dataset.days;
+  $$('#breadth-range button').forEach(x=>x.classList.toggle('on',x===b));
+  loadBreadth(breadthDays);
+});
+$$('#tracking-range button').forEach(b=>b.onclick=()=>{
+  trackingRows=b.dataset.rows;
+  $$('#tracking-range button').forEach(x=>x.classList.toggle('on',x===b));
+  loadTracking(trackingRows);
+});
+refreshAll();
+setInterval(loadStatus,30000);
+</script>
+</body>
+</html>

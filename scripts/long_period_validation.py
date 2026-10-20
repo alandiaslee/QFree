@@ -48,6 +48,14 @@ HIST_BAK = "outputs/full_breadth_history_2025.bak.csv"
 SIGNALS_CSV = "outputs/long_period_signals.csv"
 
 
+def _data_end() -> str:
+    """Last session available locally (index cache tail) — the official
+    backtest window extends as daily syncs add new sessions."""
+    from qfree.data.index_cache import load_index
+    idx = load_index(DATA_DIR)
+    return str(pd.to_datetime(idx["date"].iloc[-1]).date())
+
+
 def _count_startups(ts_code: str) -> pd.DataFrame:
     store = BarStore(DATA_DIR)
     try:
@@ -70,7 +78,7 @@ def _count_startups(ts_code: str) -> pd.DataFrame:
 
 def pass1_breadth(sessions: pd.DatetimeIndex) -> pd.DataFrame:
     universe = pd.read_csv("data/universe.csv")
-    filtered = filter_universe(universe, as_of="2026-10-16")
+    filtered = filter_universe(universe, as_of=_data_end())
     codes = filtered["ts_code"].astype(str).tolist()
     print(f"pass1: {len(codes)} symbols, {len(sessions)} sessions", flush=True)
     ctx = mp.get_context("fork")
@@ -187,7 +195,7 @@ def pass2_eval(hist: pd.DataFrame, sessions: pd.DatetimeIndex,
         report_block(f"thr={thr:.1%}", portfolio(thr))
 
     eras = [("2023-04~2024-12", "2023-04-01", "2024-12-31"),
-            ("2025-01~2026-10", "2025-01-01", "2026-10-16")]
+            ("2025-01~now", "2025-01-01", _data_end())]
     print("\n=== era split (thr=0.9%) ===")
     for label, s0, s1 in eras:
         per = portfolio(0.009)
@@ -244,7 +252,7 @@ def main() -> int:
                                request_timeout=30)
     # 60-session indicator warm-up from 2023-01-03 -> stats from 2023-04
     sessions = pd.DatetimeIndex(pd.to_datetime(
-        provider.get_trade_dates("2023-04-01", "2026-10-16")))
+        provider.get_trade_dates("2023-04-01", _data_end())))
     print(f"sessions: {len(sessions)} ({sessions[0].date()} .. {sessions[-1].date()})")
 
     hist = pass1_breadth(sessions)

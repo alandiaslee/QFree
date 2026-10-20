@@ -150,10 +150,13 @@ def _bar_coverage(
         )
     if not endpoint_reached:
         return False
-    if trade_dates is None:
+    if trade_dates is None or expected.empty:
         return True
-    available = pd.DatetimeIndex(normalized)
-    return bool(set(expected).issubset(set(available)))
+    # Mid-window suspensions are fine (indicators roll over the stock's own
+    # trading days); what matters is that the stock actually traded on the
+    # signal day — i.e. the last required session must be present.
+    available = set(normalized)
+    return bool(expected[-1] in available)
 
 
 def _load_bars(

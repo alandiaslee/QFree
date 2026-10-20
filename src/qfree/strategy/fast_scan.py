@@ -96,9 +96,11 @@ def _coverage_ok(avail_days: np.ndarray, start_day: int, meta: _DateMeta) -> boo
         endpoint_reached = last_eligible >= meta.required_minus3_day
     if not endpoint_reached:
         return False
-    if meta.expected is None:
+    if meta.expected is None or meta.expected.size == 0:
         return True
-    return bool(np.isin(meta.expected, avail_days).all())
+    # Mid-window suspensions are fine (features roll over the stock's own
+    # trading days); only require that the stock traded on the signal day.
+    return bool(np.isin(meta.expected[-1], avail_days))
 
 
 def _scan_symbol_for_dates(job: tuple) -> tuple[pd.DataFrame, pd.DataFrame]:
